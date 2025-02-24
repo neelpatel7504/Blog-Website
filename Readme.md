@@ -1,4 +1,4 @@
-# Fullstack MERN Blogging Website
+# Blogging Website
 
 This website features include -
 1. Modern Blog Editor using Editor JS.
