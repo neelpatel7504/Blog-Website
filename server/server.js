@@ -226,6 +226,50 @@ server.post("/google-auth", async (req, res) => {
 });
 
 
+server.post("/change-password",verifyJWT, (req,res)=>
+{
+    let { currentPassword, newPassword } = req.body;
+
+    if(!passwordRegex.test(currentPassword) || !passwordRegex.test(newPassword))
+        {
+            return res.status(403).json({ error:"Password should be 6 to 20 characters long with a numeric, 1 lowercase, 1 uppercase letters" });
+            
+        }
+
+            User.findOne({ _id: req.user })
+            .then((user) => {
+
+              if(user.google_auth){
+                return res.status(403).json({ error: " You can't change account's Password beacuse you logged in through google" })
+              }
+
+              bcrypt.compare(currentPassword,user.personal_info.password, (err,result) => {
+                if(err){
+                    return res.status(500).json({ error: " Some error occured while changing password, please try again later"})
+                }
+
+                if(!result){
+                    return res.status(403).json({ error:"Incorrect current password"})
+                }
+
+                bcrypt.hash(newPassword, 10, (err,hased_password) => {
+                    User.findOneAndUpdate({ _id:req.user }, { "personal_info.password": hased_password })
+                    .then((u) => {
+                        return res.status(200).json({ status: 'password changed '})
+                    })
+                    .catch(err =>{
+                        return res.status(500).json({ error: 'Some error occured while saving new password , please try again later.'})
+                    })
+                })
+              })
+
+            })
+            .catch(err => {
+                console.log(err);
+                res.status(500).json({ error: "User Not Found." })
+            })
+
+})
 
 server.post('/latest-blogs', (req, res) => {
  
@@ -344,6 +388,7 @@ server.post("/search-users", (req,res)=>{
     })
 })
 
+
 server.post("/get-profile", (req,res)=>{
     let { username } =req.body;
     User.findOne({"personal_info.username": username })
@@ -357,6 +402,77 @@ server.post("/get-profile", (req,res)=>{
     })
 })
 
+server.post("/update-profile-img", verifyJWT, (req, res) => {
+
+    let { url } = req.body;
+
+    User.findOneAndUpdate({ _id: req.user }, { "personal_info.profile_img": url })
+    .then(() => {
+        return res.status(200).json({ profile_img: url })
+    })
+    .catch(err => {
+        return res.status(500).json({ error: error.message })
+    })
+
+})
+
+server.post("/update-profile", verifyJWT, (req,res) =>{
+
+    let { username, bio, social_links } = req.body;
+
+    let bioLimit = 150;
+
+    if(username.length < 3)
+    {
+        return res.status(403).json({ error: "Username should be atleast 3 letters long." });
+    }
+
+    if(bio.length > bioLimit){
+        return res.status(403).json({ error:"Bio should not be more than 150."});
+    }
+    let social_linksArr = Object.keys(social_links);
+
+    try{
+
+        for(let i = 0; i < social_linksArr.length ; i++)
+        {
+            if(social_links[social_linksArr[i]].length){
+                let hostname = new URL(social_links[social_linksArr[i]]).hostname;
+
+        
+                
+                if(!hostname.includes(`${social_linksArr[i]}.com`) && social_linksArr[i] != 'website'){
+                  return res.status(403).json({ error: `${social_linksArr[i]} link is invalid. you must enter a full link.`  })   
+                }
+
+            }
+        }
+
+    }catch (err) {
+        return res.status(500).json({ error: "You must provide full social links with http(s) included. " })
+    }
+
+    let UpdateObj = {
+        "personal_info.username": username,
+        "personal_info.bio": bio,
+        social_links
+    }
+
+
+    User.findOneAndUpdate({ _id: req.user }, UpdateObj, {
+        runValidators: true
+    })
+    .then(() => {
+        return res.status(200).json( { username })
+    })
+    .catch(err => {
+        if(err.code == 11000){
+            return res.status(409).json({ error: "username is already taken." })
+        }
+        return res.status(500).json( { error: err.message })
+    })
+
+})
 
 server.post('/create-blog', verifyJWT, (req,res) => {
     let authorId = req.user;
@@ -590,19 +706,20 @@ server.post("/get-replies", (req, res)=>{
     Comment.findOne({ _id })
     .populate({
         path: "children",
-        option: {
+        options: {
             limit: maxLimit,
             skip: skip,
             sort: { 'commentedAt': -1 },
         },
         populate:{
            path: 'commented_by',
-           select: "personal_info.profile_img personal_info.fullname personal_info.username"
+           select: "p ersonal_info.profile_img personal_info.fullname personal_info.username"
         },
         select: "-blog_id -updatedAt"
     })
     .select("children")
     .then( doc => {
+        console.log(doc);
         return res.status(200).json({ replies: doc.children})
     })
     .catch(err => {
